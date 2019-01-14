@@ -5,23 +5,25 @@ import "./CryptoAtoms.sol";
 contract CaCoreInterface {
     function createCombinedAtom(uint, uint) external returns (uint);
     function createRandomAtom() external returns (uint);
+    function createTransferAtom(address , address , uint) external;
 }
 
-contract CryptoAtomsLogic{
+contract CryptoAtomsLogicV2{
     
     address public CaDataAddress = 0x9b3554E6FC4F81531F6D43b611258bd1058ef6D5;
     CaData public CaDataContract = CaData(CaDataAddress);
     CaCoreInterface private CaCoreContract;
     
     bool public pauseMode = false;
-    bool public bonusMode  = true;
+    bool public bonusMode = true;
     
     uint128   public newAtomFee = 1 finney;
+    uint8     public buyFeeRate = 0;
     
     uint8[4]  public levelupValues  = [0, 
                                        2, 
-                                       6, 
-                                       12];
+                                       5, 
+                                       10];
 
     event NewSetRent(address sender, uint atom);
     event NewSetBuy(address sender, uint atom);
@@ -52,7 +54,7 @@ contract CryptoAtomsLogic{
     }
     
     modifier onlyOwnerOf(uint _atomId, bool _flag) {
-        require((msg.sender == CaDataContract.atomOwner(_atomId)) == _flag);
+        require((tx.origin == CaDataContract.atomOwner(_atomId)) == _flag);
         _;
     }
     
@@ -94,9 +96,13 @@ contract CryptoAtomsLogic{
     function setGiftMode(bool _newBonusMode) external onlyAdmin {
         bonusMode = _newBonusMode;
     }
-    
+   
     function setFee(uint128 _newFee) external onlyAdmin {
         newAtomFee = _newFee;
+    }
+    
+    function setRate(uint8 _newRate) external onlyAdmin {
+        buyFeeRate = _newRate;
     }
     
     function setLevelup(uint8[4] _newLevelup) external onlyAdmin {
@@ -106,30 +112,30 @@ contract CryptoAtomsLogic{
     function setIsRentByAtom(uint _atomId, uint128 _fee) external onlyActive onlyOwnerOf(_atomId,true) onlyRenting(_atomId, false) onlyReady(_atomId) {
 	    require(_fee > 0);
 	    CaDataContract.setAtomIsRent(_atomId,_fee);
-	    NewSetRent(msg.sender,_atomId);
+	    NewSetRent(tx.origin,_atomId);
   	}
   	
   	function setIsBuyByAtom(uint _atomId, uint128 _fee) external onlyActive onlyOwnerOf(_atomId,true) onlyBuying(_atomId, false){
 	    require(_fee > 0);
 	    CaDataContract.setAtomIsBuy(_atomId,_fee);
-	    NewSetBuy(msg.sender,_atomId);
+	    NewSetBuy(tx.origin,_atomId);
   	}
   	
   	function unsetIsRentByAtom(uint _atomId) external onlyActive onlyOwnerOf(_atomId, true) onlyRenting(_atomId, true){
 	    CaDataContract.setAtomIsRent(_atomId,0);
-	    NewUnsetRent(msg.sender,_atomId);
+	    NewUnsetRent(tx.origin,_atomId);
   	}
   	
   	function unsetIsBuyByAtom(uint _atomId) external onlyActive onlyOwnerOf(_atomId, true) onlyBuying(_atomId, true){
 	    CaDataContract.setAtomIsBuy(_atomId,0);
-	    NewUnsetBuy(msg.sender,_atomId);
+	    NewUnsetBuy(tx.origin,_atomId);
   	}
   	
   	function autoRentByAtom(uint _atomId, uint _ownedId) external payable onlyActive beDifferent(_atomId, _ownedId) onlyOwnerOf(_atomId, true) onlyOwnerOf(_ownedId,true) onlyReady(_atomId) onlyReady(_ownedId)  {
         require(newAtomFee == msg.value);
         CaDataAddress.transfer(newAtomFee);
         uint id = CaCoreContract.createCombinedAtom(_atomId,_ownedId);
-        NewAutoRentAtom(msg.sender,id);
+        NewAutoRentAtom(tx.origin,id);
   	}
   	
   	 function rentByAtom(uint _atomId, uint _ownedId) external payable onlyActive beDifferent(_atomId, _ownedId) onlyOwnerOf(_ownedId, true) onlyRenting(_atomId, true) onlyReady(_ownedId) {
@@ -140,7 +146,7 @@ contract CryptoAtomsLogic{
 	    owner.transfer(isRent);
 	    CaDataAddress.transfer(newAtomFee);
         uint id = CaCoreContract.createCombinedAtom(_atomId,_ownedId);
-        NewRentAtom(msg.sender,id,owner,isRent);
+        NewRentAtom(tx.origin,id,owner,isRent);
   	}
   	
   	function buyByAtom(uint _atomId) external payable onlyActive onlyOwnerOf(_atomId, false) onlyBuying(_atomId, true) {
@@ -148,13 +154,20 @@ contract CryptoAtomsLogic{
   	    uint128 isBuy;
         (,,,,,,,,isBuy,) = CaDataContract.atoms(_atomId);
 	    require(isBuy == msg.value);
+	    if(buyFeeRate>0)
+	    {
+	        uint128 fee = uint128(isBuy/100) * buyFeeRate;
+            isBuy = isBuy - fee;
+	        CaDataAddress.transfer(fee);
+	    }
 	    owner.transfer(isBuy);
         CaDataContract.setAtomIsBuy(_atomId,0);
         CaDataContract.setAtomIsRent(_atomId,0);
-        CaDataContract.setOwnerAtomsCount(msg.sender,CaDataContract.ownerAtomsCount(msg.sender)+1);
+        CaDataContract.setOwnerAtomsCount(tx.origin,CaDataContract.ownerAtomsCount(tx.origin)+1);
         CaDataContract.setOwnerAtomsCount(owner,CaDataContract.ownerAtomsCount(owner)-1);
-        CaDataContract.setAtomOwner(_atomId,msg.sender);
-        NewBuyAtom(msg.sender,_atomId,owner,isBuy);
+        CaDataContract.setAtomOwner(_atomId,tx.origin);
+        CaCoreContract.createTransferAtom(owner, tx.origin, _atomId);
+        NewBuyAtom(tx.origin,_atomId,owner,isBuy);
   	}
   	
   	function evolveByAtom(uint _atomId) external onlyActive onlyOwnerOf(_atomId, true) {
@@ -165,14 +178,14 @@ contract CryptoAtomsLogic{
   	    require(lev < 4 && sons >= levelupValues[lev]);
   	    CaDataContract.setAtomLev(_atomId,lev+1);
   	    CaDataContract.setAtomCool(_atomId,cool-1);
-        NewEvolveAtom(msg.sender,_atomId);
+        NewEvolveAtom(tx.origin,_atomId);
   	}
   	
   	function receiveBonus() onlyActive external {
-  	    require(bonusMode == true && CaDataContract.bonusReceived(msg.sender) == false);
-  	    CaDataContract.setBonusReceived(msg.sender,true);
+  	    require(bonusMode == true && CaDataContract.bonusReceived(tx.origin) == false);
+  	    CaDataContract.setBonusReceived(tx.origin,true);
         uint id = CaCoreContract.createRandomAtom();
-        NewBonusAtom(msg.sender,id);
+        NewBonusAtom(tx.origin,id);
     }
     
 }
