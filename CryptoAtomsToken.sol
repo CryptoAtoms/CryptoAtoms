@@ -1,6 +1,6 @@
 pragma solidity ^0.4.19;
 
-import "./CaData.sol";
+import "./CryptoAtoms.sol";
 
 contract Ownable {
     
@@ -89,7 +89,7 @@ interface ERC721Enumerable {
     function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint256);
 }
           
-contract CaToken is Ownable {
+contract CryptoAtomsToken is Ownable {
     
     address public CaDataAddress = 0x290f4bc711b7799d8529b3cba35e9b8628b5a565;//0x9b3554E6FC4F81531F6D43b611258bd1058ef6D5;
     CaData public CaDataContract = CaData(CaDataAddress);
